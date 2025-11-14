@@ -1,4 +1,6 @@
 #include <Arduino.h>
+#include <functional>
+
 #define button1 4
 #define trigger 8
 #define echo 7
@@ -16,8 +18,9 @@
 
 // program functions
 float measure_distance();
-void mcc_control(int signal = 0, bool updateSpeed = false);
+void mcc_control(int signal);
 void blink_led(bool state);
+void funct_every_ms(int interval_ms, std::function<void()> action);
 
 void setup()
 {
@@ -29,7 +32,7 @@ void setup()
   pinMode(mcc_bd, OUTPUT);
   pinMode(mcc_speed, OUTPUT);
   pinMode(pot, INPUT);
-  // pinMode(mca,OUTPUT);
+  // pinMode(mca,OUTPUT);     //install relay control
   mcc_control(0);
   Serial.begin(115200);
 }
@@ -58,7 +61,12 @@ void loop()
   {
   case IDLE:
     t_travel = 0; // Reset travel time at the beginning of IDLE
+    if ((millis() - t_lastloop) >= 500) // Print every 500ms
+    {
+      t_lastloop = millis();
     Serial.println("System is idle.");
+    }
+    
     blink_led(true);
     if (digitalRead(button1) == HIGH)
     {
@@ -67,7 +75,7 @@ void loop()
       {
       }
 
-      mcc_control(1, true);
+      mcc_control(1);
       // digitalWrite(mca,HIGH);
 
       currentState = FRONTWARD;
@@ -76,12 +84,13 @@ void loop()
     break;
 
   case FRONTWARD:
-
+    mcc_control(1);
+    blink_led(false);
     if ((millis() - t_lastloop) >= 100) // measure every 100ms
     {
       t_lastloop = millis();
       distance = measure_distance();
-      blink_led(false);
+      
       Serial.print("Distance: ");
       Serial.print(distance);
       Serial.println(" cm     Going frontward");
@@ -116,11 +125,7 @@ void loop()
   case WAIT:
     mcc_control(0);
     blink_led(true);
-    if ((millis() - t_lastloop) >= 500) // Print every 500ms
-    {
-      t_lastloop = millis();
-      Serial.println("Waiting...");
-    }
+    print_every_ms(500, "Waiting...");
 
     // digitalWrite(mca_speed, 0);
     if (digitalRead(button1) == HIGH)
@@ -151,7 +156,7 @@ void loop()
     break;
 
   case END_COURSE:
-    Serial.println("End of course. Time: " + String(t_travel / 1000.00) + " s");
+    print_every_ms(500, "End of course. Time:"+String(t_travel / 1000.00)+" s" );
     if (digitalRead(button1) == HIGH)
     {
       // Antibounce: wait for button release
@@ -178,17 +183,16 @@ float measure_distance()
   return duration;
 }
 
-void mcc_control(int signal, bool updateSpeed)
+void mcc_control(int signal)
 {
   // Update speed from potentiometer only when explicitly requested.
-  if (updateSpeed)
-  {
+
     Serial.print("Updating speed from potentiometer: ");
     speed = map(analogRead(pot), 0, 1023, 0, 255);
     Serial.println(analogRead(pot));
     Serial.print("Mapped speed: ");
     Serial.println(speed);
-  }
+  
 
   // Recieve command and controls mcc_bd, mcc_fd and mcc_speed
   if (signal == 1)
@@ -213,8 +217,26 @@ void mcc_control(int signal, bool updateSpeed)
 
 void blink_led(bool state)
 {
-  digitalWrite(LED_BUILTIN, state ? HIGH : LOW); // Turn the LED on or off
-  delay(50);
-  digitalWrite(LED_BUILTIN, LOW);
-  delay(50);
+  funct_every_ms(50, [state](){ digitalWrite(LED_BUILTIN, state ? HIGH : LOW); }); // Turn the LED on or off
+  funct_every_ms(50, [](){ digitalWrite(LED_BUILTIN, LOW); });
 }
+
+// Call an action every `interval_ms`. This does NOT print or measure by itself.
+// action: callable (e.g., lambda) to be called when the interval elapses.
+// this function should be on a loop to well function
+void funct_every_ms(int interval_ms, std::function<void()> action) {
+  static unsigned long lastTime = 0;
+  if (millis() - lastTime >= (unsigned long)interval_ms) {
+    lastTime = millis();
+    action();
+  }
+}
+
+void print_every_ms(int interval_ms, String message) {
+  
+  funct_every_ms(interval_ms, [message](){ Serial.println(message); });
+  
+}
+
+
+
